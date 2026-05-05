@@ -1,57 +1,47 @@
-## Contexto
+## O que estava errado no código original
 
-Você está trabalhando em um sistema que recebe webhooks de pagamento de um provedor externo.
+O código original não tratava corretamente dois problemas comuns em integrações com webhooks de pagamento:
 
-Cada webhook representa um evento de pagamento e contém um `Id` (único por pagamento) e um valor.
+- O mesmo evento de pagamento poderia ser recebido mais de uma vez;
+- Uma falha temporária no serviço externo fazia com que o pagamento fosse simplesmente ignorado.
 
-Esse tipo de integração possui dois problemas comuns:
-- O provedor pode enviar o mesmo webhook mais de uma vez;
-- O processamento pode falhar temporariamente.
+Como não havia controle por `Id`, pagamentos duplicados poderiam ser enviados novamente para processamento, causando risco de cobrança ou soma duplicada.
 
-## O que fazer
+Além disso, o bloco `catch` estava vazio. Dessa forma, quando o método `Pagar` falhava, o erro era ignorado e nenhuma nova tentativa era realizada.
 
-Refatore o método `ProcessarPagamentos` para:
+## O que foi alterado e por quê
 
-- Ignorar eventos duplicados (mesmo `Id`), garantindo que cada pagamento seja processado apenas uma vez;
-- Em caso de falha no processamento, tentar novamente até 3 vezes antes de desistir;
-- Retornar o valor total dos pagamentos processados com sucesso;
-- Reportar pagamentos que falharam após todas as tentativas.
-  - A forma de reportar (log, retorno, exceção, etc.) é de sua escolha — explique sua decisão.
+Foi adicionado um controle de pagamentos já processados utilizando `HashSet<string>`, armazenando o `Id` dos pagamentos já tratados.
 
-## Regras
+Com isso, quando um pagamento duplicado é encontrado, ele é ignorado e não é enviado novamente para o método `Pagar`.
 
-- Não altere o método `Pagar` — ele simula um serviço externo que pode falhar;
-- Você pode criar classes, métodos ou alterar o `record`, se julgar necessário — justifique;
-- Considere apenas dados em memória (sem persistência).
+Também foi criado um mecanismo de retry para tratar falhas temporárias. Caso o método `Pagar` falhe, o sistema tenta processar o pagamento novamente até 3 vezes antes de desistir.
 
-## Diferencial (opcional)
+O total retornado considera apenas os pagamentos processados com sucesso. Quando todas as tentativas falham, o pagamento não soma valor ao total.
 
-- Processar múltiplos eventos simultaneamente;
-- Caso opte por isso, considere os cuidados com thread safety.
+## Como as falhas são reportadas
 
-## Resultado esperado
+A forma escolhida para reportar falhas foi o uso de `Console.WriteLine`.
 
-Existem 4 pagamentos únicos (`id-1` a `id-4`), totalizando 1000.
+Essa escolha foi feita porque o código é um exemplo simples de console application. Em uma aplicação real, o ideal seria substituir esse `Console.WriteLine` por uma estrutura de log, como Serilog, ILogger ou outro mecanismo de observabilidade.
 
-O valor retornado deve considerar apenas os pagamentos processados com sucesso.
+Exemplo:
 
-Pagamentos que falharem após as 3 tentativas não devem ser incluídos no total.
+```csharp
+Console.WriteLine($"Falha ao realizar pagamento: {pagamento.Id}. Tentativas: {tentativas}");
+```
+## O que faria a mais se tivesse mais tempo.
 
-> Observação: o resultado pode variar entre execuções devido às falhas simuladas.
+Como este é um exemplo simples, mantive a implementação no mesmo arquivo para facilitar a leitura e a avaliação.
 
-## Entrega
+Com mais tempo, eu separaria a lógica em arquivos e responsabilidades diferentes, deixando a estrutura do projeto mais robusta, organizada e próxima de um cenário real.
 
-- Código da solução em `.zip` ou link para repositório;
-- Um `README` explicando:
-  - O que estava errado no código original;
-  - O que foi alterado e por quê;
-  - O que faria a mais se tivesse mais tempo.
+Uma possível separação seria:
 
-## O que avaliamos
+- `EventoPagamento`: modelo/record que representa o evento recebido;
+- `ProcessadorPagamentos`: classe responsável por orquestrar o processamento dos pagamentos;
+- `RetryPagamento`: serviço ou método responsável pela política de novas tentativas;
+- `PagamentoResult`: objeto de retorno contendo o total processado e os pagamentos que falharam;
+- `ILogger` ou outro mecanismo de log para reportar falhas de forma mais adequada.
 
-- Correção da solução;
-- Clareza e organização do código;
-- Tratamento de erros;
-- Qualidade das decisões e justificativas.
-
-**Tempo estimado: 1 a 2 horas**
+Essa separação facilitaria manutenção, testes unitários e evolução da regra de negócio.
